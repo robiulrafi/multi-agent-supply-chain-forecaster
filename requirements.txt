@@ -1,0 +1,24 @@
+# --- Data + forecasting (working) ---
+pandas
+numpy
+scikit-learn
+statsmodels
+prophet
+matplotlib
+
+# --- Agents / LLM (next: supervisor + orchestration) ---
+langchain
+langchain-community
+langgraph
+langchain-groq
+langchain-ollama
+
+# --- API + deployment (later) ---
+fastapi
+uvicorn
+pydantic
+pydantic-settings
+
+# --- Utilities ---
+python-dotenv
+requests
