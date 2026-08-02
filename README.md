@@ -56,89 +56,7 @@ holidays, and store metadata. Real data is not committed; place `train.csv` and
 ## Quickstart
 
 ```bash
-python -m venv venv312 && source venv312/Scripts/activate   # Python 3.12
-pip install -r requirements.txt
-# place Rossmann train.csv and store.csv in ./data
-
-# run the forecasting agent
-python -m src.agents.forecasting_agent
-
-# run the anomaly-detection agent
-python -m src.agents.anomaly_agent
-
-# run the SUPERVISOR — routes a natural-language query to the right agent
-python -m src.agents.supervisor
-```
-
-### Example (supervisor routing)
-
-```
-Q: Will store 1 run low on sales next month?
-   routed -> forecasting_agent
-   Store 1: predicted ~3,712 sales/day over 30 days (~111,365 total).
-   Best model: prophet. Confidence: high (backtest error 7.6%).
-
-Q: Were there any unusual sales days at store 1?
-   routed -> anomaly_agent
-   Store 1: found 15 anomalous days. Most extreme: 2014-12-20
-   (spike, 8,367 vs expected ~4,785) — the pre-Christmas demand surge.
-```
-
-The supervisor uses an LLM classifier (Groq) when `GROQ_API_KEY` is set, and
-falls back to deterministic keyword routing so it runs offline and in tests.
-
-### Example (reporting agent — multi-agent synthesis)
-
-```
-Supply-chain briefing — Store 1:
-Based on a high-confidence Prophet forecast (7.6% backtest error), Store 1 is
-expected to see ~111,365 sales over the next 30 days (~3,712/day). We identified
-15 anomalous days, including a spike on 2014-12-20 (73% above expected — the
-pre-Christmas surge). Promotions lift sales ~23%, and Monday is the strongest
-weekday — so stock up on Mondays and hold buffer inventory for seasonal spikes.
-```
-
-The reporting agent calls the forecasting, anomaly, and external-factors agents,
-then synthesizes their outputs into one actionable briefing (LLM when configured,
-template otherwise). This is multi-agent *composition* — distinct from the
-supervisor's *routing*.
-
-## Architecture
-
-```
-User query
-    │
-    ▼
-Supervisor agent  (routes to the right specialist)
-    │
-    ├── Forecasting agent   → predict future demand (multi-model, self-selecting)
-    ├── Anomaly agent       → find unusual sales days (weekday-aware robust z-score)
-    ├── External-factors    → holidays / seasonality context   [planned]
-    └── Reporting agent     → synthesize a clear answer         [planned]
-    │
-    ▼
-Grounded, explained answer + confidence signal
-```
-
-## Design notes
-
-- **Empirical model selection** over trusting one model — the forecasting agent
-  backtests and picks by measured error.
-- **Weekday-aware anomaly detection** — respects retail's weekly structure
-  instead of a naive global threshold; robust statistics (median/MAD) resist
-  outliers.
-- **Graceful failure** — agents validate input (e.g. unknown store) and return a
-  clean response instead of crashing.
-- **Common agent contract** — every agent returns the same `AgentResponse`
-  shape, so orchestration and evaluation are uniform.
-
-## Tech stack
-
-Python 3.12 · pandas · statsmodels · Prophet · scikit-learn · LangGraph
-(orchestration, next) · FastAPI + Docker + CI (planned)
-EOF
-echo "written"
-head -5 /home/claude/msc/README_new.md
+python -m venv venv312 && source venv312/Scripts/activate   # Python 3.12 · pandas · statsmodels · Prophet · scikit-learn · LangGraph (agent orchestration) · Groq (LLM routing & synthesis) · FastAPI + Docker + CI (planned)
 ## Evaluation
 
 Multi-agent systems have a failure mode single-agent systems don't: the
@@ -162,9 +80,9 @@ quantifies the improvement (84% → 100%).
 ## Next steps
 
 1. **Wire the reporting agent into the supervisor** — add a "full report" route so
-   the supervisor can hand off to composition when the user wants the whole picture.
-2. **Evaluation harness (50+ cases)** — test routing accuracy (did the supervisor
-   pick the right agent?) and answer quality, with an LLM-as-judge.
+   the supervisor hands off to composition when the user wants the whole picture.
+2. **Extend evaluation** — add answer-quality cases (LLM-as-judge) beyond routing,
+   and harder/ambiguous routing cases to stress-test.
 3. **FastAPI + Docker + CI/CD** — expose `/ask`, `/health`; containerize; GitHub Actions.
 4. **AI Ops** — cost dashboard ($/request per agent), model cascading, caching.
 5. **Security & guardrails** — input validation, prompt-injection defense, access control.
