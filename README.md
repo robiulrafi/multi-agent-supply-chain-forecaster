@@ -18,8 +18,8 @@ confidence signal.
 | **Forecasting agent** — multi-model (Holt-Winters + Prophet), self-backtesting, selects best model by MAPE, reports confidence | ✅ Done |
 | **Anomaly-detection agent** — weekday-aware robust z-score (median + MAD), flags demand spikes/drops | ✅ Done |
 | **Supervisor (LangGraph)** — routes a query to the right agent (LLM classifier + keyword fallback) | ✅ Done |
-| External-factors agent (holidays, seasonality context) | ⬜ Planned |
-| Reporting agent (synthesize multi-agent output) | ⬜ Planned |
+| **External-factors agent** — promo lift, holiday effect, weekday patterns from history | ✅ Done |
+| **Reporting agent** — calls all specialists and synthesizes an LLM briefing | ✅ Done |
 | Evaluation harness (50+ routing + output cases) | ⬜ Planned |
 | FastAPI + Docker + CI/CD | ⬜ Planned |
 | Cost tracking, security guardrails, MCP server | ⬜ Planned |
@@ -87,6 +87,22 @@ Q: Were there any unusual sales days at store 1?
 The supervisor uses an LLM classifier (Groq) when `GROQ_API_KEY` is set, and
 falls back to deterministic keyword routing so it runs offline and in tests.
 
+### Example (reporting agent — multi-agent synthesis)
+
+```
+Supply-chain briefing — Store 1:
+Based on a high-confidence Prophet forecast (7.6% backtest error), Store 1 is
+expected to see ~111,365 sales over the next 30 days (~3,712/day). We identified
+15 anomalous days, including a spike on 2014-12-20 (73% above expected — the
+pre-Christmas surge). Promotions lift sales ~23%, and Monday is the strongest
+weekday — so stock up on Mondays and hold buffer inventory for seasonal spikes.
+```
+
+The reporting agent calls the forecasting, anomaly, and external-factors agents,
+then synthesizes their outputs into one actionable briefing (LLM when configured,
+template otherwise). This is multi-agent *composition* — distinct from the
+supervisor's *routing*.
+
 ## Architecture
 
 ```
@@ -125,15 +141,11 @@ echo "written"
 head -5 /home/claude/msc/README_new.md
 ## Next steps
 
-1. **External-factors agent** — incorporate holidays/seasonality/promotions as
-   explicit context (Rossmann has StateHoliday, SchoolHoliday, Promo columns).
-2. **Reporting agent** — synthesize multi-agent outputs into a single narrative
-   answer (e.g. forecast + relevant anomalies + drivers).
-3. **Multi-agent flows** — let the supervisor call *several* agents for one query
-   ("forecast next month AND flag any risk from past anomalies").
-4. **Evaluation harness (50+ cases)** — test routing accuracy (did the supervisor
+1. **Wire the reporting agent into the supervisor** — add a "full report" route so
+   the supervisor can hand off to composition when the user wants the whole picture.
+2. **Evaluation harness (50+ cases)** — test routing accuracy (did the supervisor
    pick the right agent?) and answer quality, with an LLM-as-judge.
-5. **FastAPI + Docker + CI/CD** — expose `/ask`, `/health`; containerize; GitHub Actions.
-6. **AI Ops** — cost dashboard ($/request per agent), model cascading, caching.
-7. **Security & guardrails** — input validation, prompt-injection defense, access control.
-8. **MCP server** — expose the agents as MCP tools.
+3. **FastAPI + Docker + CI/CD** — expose `/ask`, `/health`; containerize; GitHub Actions.
+4. **AI Ops** — cost dashboard ($/request per agent), model cascading, caching.
+5. **Security & guardrails** — input validation, prompt-injection defense, access control.
+6. **MCP server** — expose the agents as MCP tools.
