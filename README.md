@@ -136,9 +136,6 @@ Grounded, explained answer + confidence signal
 
 Python 3.12 · pandas · statsmodels · Prophet · scikit-learn · LangGraph
 (orchestration, next) · FastAPI + Docker + CI (planned)
-EOF
-echo "written"
-head -5 /home/claude/msc/README_new.md
 ## Evaluation
 
 Multi-agent systems have a failure mode single-agent systems don't: the
