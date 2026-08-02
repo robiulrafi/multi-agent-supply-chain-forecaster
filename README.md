@@ -17,7 +17,7 @@ confidence signal.
 | Data loader (Rossmann per-store daily series) | ✅ Done |
 | **Forecasting agent** — multi-model (Holt-Winters + Prophet), self-backtesting, selects best model by MAPE, reports confidence | ✅ Done |
 | **Anomaly-detection agent** — weekday-aware robust z-score (median + MAD), flags demand spikes/drops | ✅ Done |
-| Supervisor / LangGraph orchestration (routes query → agent) | 🚧 Next |
+| **Supervisor (LangGraph)** — routes a query to the right agent (LLM classifier + keyword fallback) | ✅ Done |
 | External-factors agent (holidays, seasonality context) | ⬜ Planned |
 | Reporting agent (synthesize multi-agent output) | ⬜ Planned |
 | Evaluation harness (50+ routing + output cases) | ⬜ Planned |
@@ -65,7 +65,27 @@ python -m src.agents.forecasting_agent
 
 # run the anomaly-detection agent
 python -m src.agents.anomaly_agent
+
+# run the SUPERVISOR — routes a natural-language query to the right agent
+python -m src.agents.supervisor
 ```
+
+### Example (supervisor routing)
+
+```
+Q: Will store 1 run low on sales next month?
+   routed -> forecasting_agent
+   Store 1: predicted ~3,712 sales/day over 30 days (~111,365 total).
+   Best model: prophet. Confidence: high (backtest error 7.6%).
+
+Q: Were there any unusual sales days at store 1?
+   routed -> anomaly_agent
+   Store 1: found 15 anomalous days. Most extreme: 2014-12-20
+   (spike, 8,367 vs expected ~4,785) — the pre-Christmas demand surge.
+```
+
+The supervisor uses an LLM classifier (Groq) when `GROQ_API_KEY` is set, and
+falls back to deterministic keyword routing so it runs offline and in tests.
 
 ## Architecture
 
@@ -103,3 +123,17 @@ Python 3.12 · pandas · statsmodels · Prophet · scikit-learn · LangGraph
 EOF
 echo "written"
 head -5 /home/claude/msc/README_new.md
+## Next steps
+
+1. **External-factors agent** — incorporate holidays/seasonality/promotions as
+   explicit context (Rossmann has StateHoliday, SchoolHoliday, Promo columns).
+2. **Reporting agent** — synthesize multi-agent outputs into a single narrative
+   answer (e.g. forecast + relevant anomalies + drivers).
+3. **Multi-agent flows** — let the supervisor call *several* agents for one query
+   ("forecast next month AND flag any risk from past anomalies").
+4. **Evaluation harness (50+ cases)** — test routing accuracy (did the supervisor
+   pick the right agent?) and answer quality, with an LLM-as-judge.
+5. **FastAPI + Docker + CI/CD** — expose `/ask`, `/health`; containerize; GitHub Actions.
+6. **AI Ops** — cost dashboard ($/request per agent), model cascading, caching.
+7. **Security & guardrails** — input validation, prompt-injection defense, access control.
+8. **MCP server** — expose the agents as MCP tools.
