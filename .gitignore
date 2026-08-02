@@ -1,7 +1,25 @@
-venv312/
+# virtual environments
+venv*/
+.venv/
+env/
+
+# python
 __pycache__/
 *.pyc
+*.pyo
+
+# secrets & config
 .env
+*.env
+
+# data (real data not committed)
 data/*.csv
 data/*.zip
+
+# notebooks
 .ipynb_checkpoints/
+
+# OS / editor
+.DS_Store
+*.swp
+.vscode/
