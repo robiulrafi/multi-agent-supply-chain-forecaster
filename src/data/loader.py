@@ -4,6 +4,10 @@ Data loading and preparation for the Rossmann Store Sales dataset.
 The forecasting agent works on a per-store daily sales time series. This module
 handles loading the raw CSVs, cleaning them, and producing a clean time series
 for any given store.
+
+Note on DATA_DIR: functions read the module-level DATA_DIR at CALL time (via a
+None default), not as a bound default argument. This lets tests point the loader
+at a temporary dataset by setting `loader.DATA_DIR = <tmp>` before calling.
 """
 
 from __future__ import annotations
@@ -14,9 +18,14 @@ import pandas as pd
 DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 
 
-def load_raw(data_dir: Path | str = DATA_DIR) -> tuple[pd.DataFrame, pd.DataFrame]:
+def _resolve(data_dir):
+    """Fall back to the (possibly monkey-patched) module-level DATA_DIR."""
+    return Path(data_dir) if data_dir is not None else Path(DATA_DIR)
+
+
+def load_raw(data_dir=None) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Load the raw train.csv and store.csv."""
-    data_dir = Path(data_dir)
+    data_dir = _resolve(data_dir)
     train = pd.read_csv(
         data_dir / "train.csv",
         dtype={"StateHoliday": str},   # column has mixed types ('0' and 0)
@@ -29,7 +38,7 @@ def load_raw(data_dir: Path | str = DATA_DIR) -> tuple[pd.DataFrame, pd.DataFram
 
 def get_store_series(
     store_id: int,
-    data_dir: Path | str = DATA_DIR,
+    data_dir=None,
     open_only: bool = True,
 ) -> pd.DataFrame:
     """
@@ -49,14 +58,13 @@ def get_store_series(
     return s[["Sales", "Customers", "Promo", "DayOfWeek"]]
 
 
-def list_stores(data_dir: Path | str = DATA_DIR) -> list[int]:
+def list_stores(data_dir=None) -> list[int]:
     """Return the list of available store IDs."""
     train, _ = load_raw(data_dir)
     return sorted(train["Store"].unique().tolist())
 
 
 if __name__ == "__main__":
-    # quick smoke test
     stores = list_stores()
     print(f"Stores available: {len(stores)} (first few: {stores[:5]})")
     series = get_store_series(stores[0])
