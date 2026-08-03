@@ -1,5 +1,7 @@
 # Multi-Agent Supply Chain Forecaster
 
+![CI](https://github.com/robiulrafi/multi-agent-supply-chain-forecaster/actions/workflows/ci.yml/badge.svg)
+
 A multi-agent system for supply-chain intelligence. A supervisor agent routes
 questions across specialized agents — forecasting, anomaly detection,
 external-factors, and reporting — over **real retail sales data** (Rossmann
@@ -47,7 +49,7 @@ external-factors agents, then synthesizes an actionable briefing:
 | **Reporting agent** — calls all specialists and synthesizes an LLM briefing | ✅ Done |
 | **Supervisor (LangGraph)** — routes a query to the right agent (LLM classifier + keyword fallback) | ✅ Done |
 | **Evaluation harness** — 50 routing cases; keyword router 84% vs LLM router 100% | ✅ Done |
-| FastAPI + Docker + CI/CD | ⬜ Planned |
+| **FastAPI + Docker + CI/CD** — REST API, containerized, GitHub Actions (8 tests passing) | ✅ Done |
 | Cost tracking, security guardrails, MCP server | ⬜ Planned |
 
 ## Agents
@@ -84,32 +86,39 @@ supervisor can route to any of them.
 holidays, and store metadata. Real data is not committed; place `train.csv` and
 `store.csv` in `./data`.
 
-## Quickstart Process
+## Quickstart
 
 ```bash
 python -m venv venv312 && source venv312/Scripts/activate   # Python 3.12
 pip install -r requirements.txt
 # place Rossmann train.csv and store.csv in ./data
 
-# run the forecasting agent
-python -m src.agents.forecasting_agent
+# --- run the API (interactive docs at http://localhost:8000/docs) ---
+uvicorn src.api.main:app --reload --port 8000
 
-# run the anomaly-detection agent
-python -m src.agents.anomaly_agent
+# --- or run individual components directly ---
+python -m src.agents.forecasting_agent    # forecasting agent
+python -m src.agents.anomaly_agent         # anomaly-detection agent
+python -m src.agents.supervisor            # supervisor (routes a query)
+python -m src.agents.reporting_agent       # full multi-agent briefing
+python -m src.eval.eval_routing            # evaluation harness (50 cases)
 
-# run the SUPERVISOR — routes a natural-language query to the right agent
-python -m src.agents.supervisor
-
-# run the reporting agent — full multi-agent briefing
-python -m src.agents.reporting_agent
-
-# run the evaluation harness — routing accuracy over 50 cases
-python -m src.eval.eval_routing
+# --- run the tests ---
+pytest tests/ -q
 ```
 
 Set `GROQ_API_KEY` to enable LLM-based routing and LLM-written briefings;
 without it, the system falls back to keyword routing and template reports so it
 still runs fully offline.
+
+## API endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/health` | Liveness probe (does not invoke any model) |
+| GET | `/stores` | List available store IDs |
+| POST | `/ask` | Route a natural-language query to the right agent |
+| POST | `/report` | Full multi-agent briefing for a store |
 
 ## Example — supervisor routing
 
@@ -180,17 +189,17 @@ Grounded, explained answer + confidence signal
 - **Two orchestration patterns** — the supervisor *routes* to one agent; the reporting agent *composes* several.
 - **Graceful failure** — agents validate input (e.g. unknown store) and return a clean response instead of crashing.
 - **Swappable LLM** — routing/synthesis use Groq when configured and fall back to offline logic otherwise, so nothing hard-depends on a model being present.
+- **CI-tested** — 8 tests cover routing logic, the eval harness, and API endpoints, running on synthetic data so CI needs no real dataset, GPU, or API key.
 
 ## Tech stack
 
 Python 3.12 · pandas · statsmodels · Prophet · scikit-learn · LangGraph (agent
-orchestration) · Groq (LLM routing & synthesis) · FastAPI + Docker + CI (planned)
+orchestration) · Groq (LLM routing & synthesis) · FastAPI · Docker · GitHub Actions CI
 
 ## Next steps
 
 1. **Wire the reporting agent into the supervisor** — add a "full report" route so the supervisor hands off to composition when the user wants the whole picture.
 2. **Extend evaluation** — add answer-quality cases (LLM-as-judge) and harder/ambiguous routing cases.
-3. **FastAPI + Docker + CI/CD** — expose `/ask`, `/health`; containerize; GitHub Actions.
-4. **AI Ops** — cost dashboard ($/request per agent), model cascading, caching.
-5. **Security & guardrails** — input validation, prompt-injection defense, access control.
-6. **MCP server** — expose the agents as MCP tools.
+3. **AI Ops** — cost dashboard ($/request per agent), model cascading, semantic caching.
+4. **Security & guardrails** — input validation, prompt-injection defense, access control.
+5. **MCP server** — expose the agents as MCP tools.
