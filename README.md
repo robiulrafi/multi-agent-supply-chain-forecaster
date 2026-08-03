@@ -1,4 +1,5 @@
 # Multi-Agent Supply Chain Forecaster
+![CI](https://github.com/robiulrafi/multi-agent-supply-chain-forecaster/actions/workflows/ci.yml/badge.svg)
 
 A multi-agent system for supply-chain intelligence. A supervisor agent routes
 questions across specialized agents — forecasting, anomaly detection,
