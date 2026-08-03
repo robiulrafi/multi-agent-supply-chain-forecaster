@@ -1,0 +1,12 @@
+venv*/
+__pycache__/
+*.pyc
+.env
+data/*.csv
+data/*.zip
+.git/
+.github/
+notebooks/
+*.md
+.ipynb_checkpoints/
+.pytest_cache/

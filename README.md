@@ -10,6 +10,32 @@ next month?" or "Were there unusual sales days at store 5?"), route it to the
 right specialist agent and return a grounded, explained answer with a
 confidence signal.
 
+## Demo
+
+The system runs as a FastAPI service with interactive docs. A supervisor routes
+each query to the right specialist agent, and a reporting agent composes several
+agents into a single briefing.
+
+**Interactive API (`/docs`)** — auto-generated OpenAPI docs for every endpoint:
+
+![API docs](assets/screenshot_docs.png)
+
+**`POST /ask`** — a query is routed to the forecasting agent, which benchmarks
+Holt-Winters vs Prophet and returns the better model with a confidence signal:
+
+![Forecast response](assets/screenshot_forecast.png)
+
+**`POST /report`** — the reporting agent calls the forecasting, anomaly, and
+external-factors agents, then synthesizes an actionable briefing:
+
+![Report response](assets/screenshot_report.png)
+
+> *"Store 1 is expected to experience a high volume of sales over the next 30
+> days... Prophet has high confidence (7.6% backtest error). However, we
+> identified 15 anomalous days, including a spike on December 20, 2014 (+74%).
+> We recommend closely monitoring sales on Mondays (strongest) and Thursdays
+> (weakest)."*
+
 ## Status
 
 | Component | Status |
