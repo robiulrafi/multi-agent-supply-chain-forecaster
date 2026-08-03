@@ -40,27 +40,28 @@ external-factors agents, then synthesizes an actionable briefing:
 | Component | Status |
 |---|---|
 | Data loader (Rossmann per-store daily series) | ✅ Done |
-| **Forecasting agent** — multi-model (Holt-Winters + Prophet), self-backtesting, selects best model by MAPE | ✅ Done |
+| **Forecasting agent** — multi-model (Holt-Winters + Prophet), self-backtesting, best model by MAPE, **prediction intervals** | ✅ Done |
 | **Anomaly-detection agent** — weekday-aware robust z-score (median + MAD), flags spikes/drops | ✅ Done |
 | **External-factors agent** — promo lift, holiday effect, weekday patterns from history | ✅ Done |
 | **Reporting agent** — calls all specialists and synthesizes an LLM briefing | ✅ Done |
 | **Supervisor (LangGraph)** — 3-way routing to forecasting / anomaly / reporting (LLM classifier + keyword fallback) | ✅ Done |
 | **Evaluation harness** — 50 routing cases; keyword router 84% vs LLM router 100% | ✅ Done |
-| **FastAPI + Docker + CI/CD** — REST API, containerized, GitHub Actions (tests passing) | ✅ Done |
+| **FastAPI + Docker + CI/CD** — REST API, containerized, GitHub Actions (12 tests) | ✅ Done |
 | **MCP server** — agents exposed as MCP tools for any MCP client | ✅ Done |
 | **AI Ops** — per-agent cost/latency tracking via `/metrics` | ✅ Done |
-| Security guardrails; uncertainty quantification | ⬜ Planned |
+| **Security guardrails** — input validation + prompt-injection defense | ✅ Done |
 
 ## Agents
 
 **Forecasting agent** — predicts future daily sales for a store. Benchmarks
 multiple models on held-out data (backtest MAPE) and selects the best one
-automatically, so every forecast comes with an expected-error / confidence signal:
+automatically, and returns a **prediction interval** alongside the point forecast:
 - **Holt-Winters** (statsmodels) — exponential smoothing with weekly seasonality; robust baseline
 - **Prophet** — additive model with weekly + yearly seasonality and promotions as a regressor
 
 On real data, Prophet typically wins (e.g. ~7.6% MAPE vs ~25% for Holt-Winters on
-Store 1), and the agent selects it automatically.
+Store 1). A forecast reads, for example: *3,712 sales/day, 80% interval
+2,923–4,507* — a range for inventory planning, not just a point estimate.
 
 **Anomaly-detection agent** — explains the past by finding unusual sales days.
 Uses a **weekday-aware robust z-score** (median + MAD within each day-of-week
@@ -117,7 +118,7 @@ still runs fully offline.
 | GET | `/health` | Liveness probe (does not invoke any model) |
 | GET | `/metrics` | Per-agent cost, latency, and usage (AI Ops) |
 | GET | `/stores` | List available store IDs |
-| POST | `/ask` | Route a natural-language query to the right agent |
+| POST | `/ask` | Route a natural-language query to the right agent (guardrail-protected) |
 | POST | `/report` | Full multi-agent briefing for a store |
 
 ## MCP server
@@ -150,7 +151,7 @@ Tools: `forecast_demand`, `detect_anomalies`, `generate_report`,
 ```
 Q: Will store 1 run low on sales next month?
    routed -> forecasting_agent
-   Store 1: predicted ~3,712 sales/day over 30 days (~111,365 total).
+   Store 1: predicted ~3,712 sales/day (80% interval 2,923–4,507) over 30 days.
    Best model: prophet. Confidence: high (backtest error 7.6%).
 
 Q: Were there any unusual sales days at store 1?
@@ -182,10 +183,18 @@ quantifies the improvement (84% → 100%).
 ## AI Ops (observability)
 
 The `/metrics` endpoint reports per-agent call counts, average latency, token
-usage, and estimated cost. This makes an important tradeoff visible: the
-forecasting agent is ~70x slower than anomaly detection (it fits Prophet;
-anomaly detection is pure statistics), which is exactly the signal that would
-drive an optimization like caching forecasts or model cascading.
+usage, and estimated cost. This makes a real tradeoff visible: the reporting
+agent (~26s) is far slower than forecasting (~9s) or anomaly detection, because
+it composes all specialists sequentially plus an LLM call — exactly the signal
+that would drive an optimization like caching forecasts or running the
+sub-agents in parallel.
+
+## Security
+
+User text reaches an LLM (router + reporting synthesis), so `/ask` is protected
+by guardrails that run **before** any model call: length/type validation, bounds
+checks, and prompt-injection detection (e.g. "ignore previous instructions",
+role-tag spoofing). Suspicious queries are rejected with a 400.
 
 ## Architecture
 
@@ -193,9 +202,12 @@ drive an optimization like caching forecasts or model cascading.
 User query
     │
     ▼
+Security guardrails  — validate + sanitize (block injection)
+    │
+    ▼
 Supervisor (LangGraph)  — routes to the right specialist
     │
-    ├── Forecasting agent   → predict future demand (multi-model, self-selecting)
+    ├── Forecasting agent   → predict future demand (multi-model, intervals)
     ├── Anomaly agent       → find unusual sales days (weekday-aware robust z-score)
     ├── External-factors    → promo lift / holiday / weekday drivers
     └── Reporting agent     → calls all specialists, synthesizes a briefing
@@ -209,12 +221,13 @@ Also exposed via: FastAPI REST API  +  MCP server  +  /metrics (AI Ops)
 ## Design notes
 
 - **Empirical model selection** — the forecasting agent backtests and picks by measured error, not by assumption.
+- **Uncertainty quantified** — forecasts carry prediction intervals, not just point estimates.
 - **Weekday-aware anomaly detection** — respects retail's weekly structure; robust statistics (median/MAD) resist outliers.
 - **Two orchestration patterns** — the supervisor *routes* to one agent; the reporting agent *composes* several.
 - **Graceful failure** — agents validate input (e.g. unknown store) and return a clean response instead of crashing.
-- **Swappable LLM** — routing/synthesis use Groq when configured and fall back to offline logic otherwise, so nothing hard-depends on a model being present.
-- **Observability built in** — per-agent cost/latency tracked and exposed via `/metrics`.
-- **CI-tested** — tests cover routing logic, the eval harness, and API endpoints, running on synthetic data so CI needs no real dataset, GPU, or API key.
+- **Swappable LLM** — routing/synthesis use Groq when configured and fall back to offline logic otherwise.
+- **Observability + security built in** — per-agent cost/latency via `/metrics`; input validation + prompt-injection defense on `/ask`.
+- **CI-tested** — 12 tests cover routing, the eval harness, API endpoints, and security guardrails, running on synthetic data so CI needs no real dataset, GPU, or API key.
 
 ## Tech stack
 
@@ -228,20 +241,16 @@ Honest scope notes — this is a portfolio project, not a production system:
 
 - **Forecasting models** — Holt-Winters + Prophet only; modern alternatives
   (LightGBM-TS, N-BEATS, NeuralProphet) are not included.
-- **Point forecasts** — returns a point estimate with a confidence flag; adding
-  prediction intervals would better support inventory decisions. *(planned)*
 - **Store metadata** — `store.csv` (store type, competition distance, assortment)
   is loaded but not yet used as forecast features.
-- **LLM synthesis** — the reporting narrative has no automated answer-quality
-  evaluation yet (routing is evaluated; answer quality is not).
-- **Security** — input validation is limited to unknown-store handling; no
-  prompt-injection defense or access control yet. *(planned)*
+- **Answer-quality evaluation** — routing is evaluated (84%→100%); the reporting
+  narrative is not yet scored with an LLM-as-judge. *(future work)*
+- **Cost optimization** — `/metrics` surfaces the bottleneck, but caching and
+  model cascading are not yet implemented. *(future work)*
 - **Static data** — no automated retraining, drift detection, or A/B pipeline;
-  Rossmann data ends July 2015 (a standard benchmark, but not recent dynamics).
+  Rossmann data ends July 2015 (a standard benchmark, not recent dynamics).
 
 ## Next steps
 
-1. **Uncertainty quantification** — expose Prophet's prediction intervals for inventory planning.
-2. **Security & guardrails** — input validation, prompt-injection defense, access control.
-3. **Extend evaluation** — LLM-as-judge for answer quality; harder/ambiguous routing cases.
-4. **Model cascading / caching** — use `/metrics` signals to cache forecasts and route simple tasks to cheaper models.
+1. **Extend evaluation** — LLM-as-judge for answer quality; harder/ambiguous routing cases.
+2. **Model cascading / caching** — use `/metrics` signals to cache forecasts and route simple tasks to cheaper models.
