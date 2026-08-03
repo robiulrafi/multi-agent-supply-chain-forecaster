@@ -17,6 +17,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install system build deps (for prophet/statsmodels)
+        run: sudo apt-get update && sudo apt-get install -y build-essential
+
       - name: Cache pip
         uses: actions/cache@v4
         with:
