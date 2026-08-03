@@ -84,7 +84,7 @@ supervisor can route to any of them.
 holidays, and store metadata. Real data is not committed; place `train.csv` and
 `store.csv` in `./data`.
 
-## Quickstart
+## Quickstart Process
 
 ```bash
 python -m venv venv312 && source venv312/Scripts/activate   # Python 3.12
