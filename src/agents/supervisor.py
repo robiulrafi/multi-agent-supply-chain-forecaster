@@ -22,6 +22,9 @@ from langgraph.graph import StateGraph, START, END
 
 from src.agents.forecasting_agent import ForecastingAgent
 from src.agents.anomaly_agent import AnomalyAgent
+from src.agents.reporting_agent import ReportingAgent
+from src.ops.cost_tracker import tracker as _cost_tracker
+import time as _time
 
 
 # ---- shared state passed between graph nodes ----
@@ -37,6 +40,7 @@ class SupervisorState(TypedDict, total=False):
 # ---- agents (instantiated once) ----
 _forecasting = ForecastingAgent()
 _anomaly = AnomalyAgent()
+_reporting = ReportingAgent()
 
 
 # ---- deterministic keyword router (fallback + offline tests) ----
@@ -44,13 +48,20 @@ _FORECAST_KWS = ("forecast", "predict", "future", "next month", "next week",
                  "demand", "will we", "run low", "run out", "expect", "projection")
 _ANOMALY_KWS = ("anomaly", "anomalies", "unusual", "outlier", "spike", "drop",
                 "strange", "weird", "went wrong", "abnormal")
+_REPORT_KWS = ("report", "full picture", "overview", "summary", "summarize",
+               "briefing", "brief", "everything", "complete", "full report",
+               "tell me about", "whole picture")
 
 
-def _keyword_route(query: str) -> Literal["forecasting_agent", "anomaly_agent"]:
+def _keyword_route(query: str) -> Literal["forecasting_agent", "anomaly_agent", "reporting_agent"]:
     q = query.lower()
+    report_hits = sum(kw in q for kw in _REPORT_KWS)
     anomaly_hits = sum(kw in q for kw in _ANOMALY_KWS)
     forecast_hits = sum(kw in q for kw in _FORECAST_KWS)
-    # default to forecasting when tied/ambiguous (it's the primary use case)
+    # a report request ("full picture / overview / everything") wins if present,
+    # since it composes the other agents anyway
+    if report_hits > 0 and report_hits >= anomaly_hits and report_hits >= forecast_hits:
+        return "reporting_agent"
     return "anomaly_agent" if anomaly_hits > forecast_hits else "forecasting_agent"
 
 
@@ -63,13 +74,16 @@ def _llm_route(query: str) -> Optional[str]:
         from langchain_groq import ChatGroq
         llm = ChatGroq(model="llama-3.1-8b-instant", temperature=0)
         prompt = (
-            "You route supply-chain questions to one of two tools.\n"
-            "Reply with EXACTLY one word: 'forecasting' or 'anomaly'.\n"
+            "You route supply-chain questions to one of three tools.\n"
+            "Reply with EXACTLY one word: 'forecasting', 'anomaly', or 'report'.\n"
             "- 'forecasting' = predicting future sales/demand.\n"
-            "- 'anomaly' = finding unusual/outlier sales days in history.\n\n"
+            "- 'anomaly' = finding unusual/outlier sales days in history.\n"
+            "- 'report' = a full overview/summary/briefing combining everything.\n\n"
             f"Question: {query}\nAnswer:"
         )
         ans = llm.invoke(prompt).content.strip().lower()
+        if "report" in ans:
+            return "reporting_agent"
         if "anomaly" in ans:
             return "anomaly_agent"
         if "forecast" in ans:
@@ -93,15 +107,29 @@ def route_node(state: SupervisorState) -> SupervisorState:
 
 
 def forecasting_node(state: SupervisorState) -> SupervisorState:
+    _t0 = _time.perf_counter()
     resp = _forecasting.run(
         store_id=state["store_id"],
         horizon_days=state.get("horizon_days", 30),
     )
+    _cost_tracker.record("forecasting_agent", _time.perf_counter() - _t0, error=not resp.ok)
     return {**state, "result": resp.to_dict(), "message": resp.message}
 
 
 def anomaly_node(state: SupervisorState) -> SupervisorState:
+    _t0 = _time.perf_counter()
     resp = _anomaly.run(store_id=state["store_id"])
+    _cost_tracker.record("anomaly_agent", _time.perf_counter() - _t0, error=not resp.ok)
+    return {**state, "result": resp.to_dict(), "message": resp.message}
+
+
+def reporting_node(state: SupervisorState) -> SupervisorState:
+    _t0 = _time.perf_counter()
+    resp = _reporting.run(
+        store_id=state["store_id"],
+        horizon_days=state.get("horizon_days", 30),
+    )
+    _cost_tracker.record("reporting_agent", _time.perf_counter() - _t0, error=not resp.ok)
     return {**state, "result": resp.to_dict(), "message": resp.message}
 
 
@@ -115,15 +143,21 @@ def build_supervisor():
     g.add_node("route", route_node)
     g.add_node("forecasting_agent", forecasting_node)
     g.add_node("anomaly_agent", anomaly_node)
+    g.add_node("reporting_agent", reporting_node)
 
     g.add_edge(START, "route")
     g.add_conditional_edges(
         "route",
         _route_selector,
-        {"forecasting_agent": "forecasting_agent", "anomaly_agent": "anomaly_agent"},
+        {
+            "forecasting_agent": "forecasting_agent",
+            "anomaly_agent": "anomaly_agent",
+            "reporting_agent": "reporting_agent",
+        },
     )
     g.add_edge("forecasting_agent", END)
     g.add_edge("anomaly_agent", END)
+    g.add_edge("reporting_agent", END)
     return g.compile()
 
 
@@ -142,6 +176,8 @@ if __name__ == "__main__":
         "Were there any unusual sales days at store 1?",
         "Forecast demand for store 1",
         "Show me anomalies for store 1",
+        "Give me a full report on store 1",
+        "Complete overview of store 1",
     ]
     app = build_supervisor()
     for q in tests:

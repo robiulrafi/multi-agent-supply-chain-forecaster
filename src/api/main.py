@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from src.agents.supervisor import build_supervisor
 from src.agents.reporting_agent import ReportingAgent
 from src.data.loader import list_stores
+from src.ops.cost_tracker import tracker as cost_tracker
 
 app = FastAPI(
     title="Multi-Agent Supply Chain Forecaster",
@@ -57,6 +58,12 @@ def health():
     """Liveness probe. Deliberately does NOT invoke any agent or model —
     it just confirms the service is up, so orchestrators can poll it cheaply."""
     return {"status": "ok", "service": "supply-chain-multi-agent"}
+
+
+@app.get("/metrics")
+def metrics():
+    """AI Ops: per-agent usage, latency, and estimated cost since startup."""
+    return cost_tracker.snapshot()
 
 
 @app.get("/stores")

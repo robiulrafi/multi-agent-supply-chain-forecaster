@@ -1,22 +1,19 @@
 # Multi-Agent Supply Chain Forecaster
 
-![CI](https://github.com/robiulrafi/multi-agent-supply-chain-forecaster/actions/workflows/ci.yml/badge.svg)
-
 A multi-agent system for supply-chain intelligence. A supervisor agent routes
 questions across specialized agents — forecasting, anomaly detection,
 external-factors, and reporting — over **real retail sales data** (Rossmann
 Store Sales: 1,115 stores, daily sales 2013–2015, with promotions and holidays).
 
 The goal: given a natural-language question about a store ("Will store 5 run low
-next month?" or "Were there unusual sales days at store 5?"), route it to the
-right specialist agent and return a grounded, explained answer with a
-confidence signal.
+next month?" or "Give me a full report on store 5"), route it to the right
+specialist agent (or compose several) and return a grounded, explained answer
+with a confidence signal.
 
 ## Demo
 
-The system runs as a FastAPI service with interactive docs. A supervisor routes
-each query to the right specialist agent, and a reporting agent composes several
-agents into a single briefing.
+The system runs as a FastAPI service with interactive docs, and is also exposed
+as an MCP server so the agents are callable from any MCP client.
 
 **Interactive API (`/docs`)** — auto-generated OpenAPI docs for every endpoint:
 
@@ -47,10 +44,12 @@ external-factors agents, then synthesizes an actionable briefing:
 | **Anomaly-detection agent** — weekday-aware robust z-score (median + MAD), flags spikes/drops | ✅ Done |
 | **External-factors agent** — promo lift, holiday effect, weekday patterns from history | ✅ Done |
 | **Reporting agent** — calls all specialists and synthesizes an LLM briefing | ✅ Done |
-| **Supervisor (LangGraph)** — routes a query to the right agent (LLM classifier + keyword fallback) | ✅ Done |
+| **Supervisor (LangGraph)** — 3-way routing to forecasting / anomaly / reporting (LLM classifier + keyword fallback) | ✅ Done |
 | **Evaluation harness** — 50 routing cases; keyword router 84% vs LLM router 100% | ✅ Done |
-| **FastAPI + Docker + CI/CD** — REST API, containerized, GitHub Actions (8 tests passing) | ✅ Done |
-| Cost tracking, security guardrails, MCP server | ⬜ Planned |
+| **FastAPI + Docker + CI/CD** — REST API, containerized, GitHub Actions (tests passing) | ✅ Done |
+| **MCP server** — agents exposed as MCP tools for any MCP client | ✅ Done |
+| **AI Ops** — per-agent cost/latency tracking via `/metrics` | ✅ Done |
+| Security guardrails; uncertainty quantification | ⬜ Planned |
 
 ## Agents
 
@@ -116,9 +115,35 @@ still runs fully offline.
 | Method | Path | Description |
 |---|---|---|
 | GET | `/health` | Liveness probe (does not invoke any model) |
+| GET | `/metrics` | Per-agent cost, latency, and usage (AI Ops) |
 | GET | `/stores` | List available store IDs |
 | POST | `/ask` | Route a natural-language query to the right agent |
 | POST | `/report` | Full multi-agent briefing for a store |
+
+## MCP server
+
+The agents are also exposed as **Model Context Protocol** tools, so any MCP
+client (e.g. Claude Desktop) can call them:
+
+```bash
+python -m src.mcp_server        # stdio transport
+```
+
+Tools: `forecast_demand`, `detect_anomalies`, `generate_report`,
+`list_available_stores`. To connect from Claude Desktop, add to
+`claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "supply-chain": {
+      "command": "python",
+      "args": ["-m", "src.mcp_server"],
+      "cwd": "/absolute/path/to/multi-agent-supply-chain"
+    }
+  }
+}
+```
 
 ## Example — supervisor routing
 
@@ -130,23 +155,12 @@ Q: Will store 1 run low on sales next month?
 
 Q: Were there any unusual sales days at store 1?
    routed -> anomaly_agent
-   Store 1: found 15 anomalous days. Most extreme: 2014-12-20
-   (spike, 8,367 vs expected ~4,785) — the pre-Christmas surge.
-```
+   Store 1: found 15 anomalous days. Most extreme: 2014-12-20 (spike).
 
-## Example — reporting agent (multi-agent synthesis)
-
+Q: Give me a full report on store 1
+   routed -> reporting_agent
+   Supply-chain briefing — Store 1: <forecast + anomalies + drivers>
 ```
-Supply-chain briefing — Store 1:
-Based on a high-confidence Prophet forecast (7.6% backtest error), Store 1 is
-expected to see ~111,365 sales over the next 30 days (~3,712/day). We identified
-15 anomalous days, including a spike on 2014-12-20 (73% above expected — the
-pre-Christmas surge). Promotions lift sales ~23%, and Monday is the strongest
-weekday — so stock up on Mondays and hold buffer inventory for seasonal spikes.
-```
-
-The reporting agent calls several specialists and synthesizes one briefing — this
-is multi-agent *composition*, distinct from the supervisor's *routing*.
 
 ## Evaluation
 
@@ -165,6 +179,14 @@ because "demand" collides with the forecasting keywords. This is exactly why the
 LLM router exists — it routes on intent, not keyword overlap — and the harness
 quantifies the improvement (84% → 100%).
 
+## AI Ops (observability)
+
+The `/metrics` endpoint reports per-agent call counts, average latency, token
+usage, and estimated cost. This makes an important tradeoff visible: the
+forecasting agent is ~70x slower than anomaly detection (it fits Prophet;
+anomaly detection is pure statistics), which is exactly the signal that would
+drive an optimization like caching forecasts or model cascading.
+
 ## Architecture
 
 ```
@@ -180,6 +202,8 @@ Supervisor (LangGraph)  — routes to the right specialist
     │
     ▼
 Grounded, explained answer + confidence signal
+
+Also exposed via: FastAPI REST API  +  MCP server  +  /metrics (AI Ops)
 ```
 
 ## Design notes
@@ -189,17 +213,35 @@ Grounded, explained answer + confidence signal
 - **Two orchestration patterns** — the supervisor *routes* to one agent; the reporting agent *composes* several.
 - **Graceful failure** — agents validate input (e.g. unknown store) and return a clean response instead of crashing.
 - **Swappable LLM** — routing/synthesis use Groq when configured and fall back to offline logic otherwise, so nothing hard-depends on a model being present.
-- **CI-tested** — 8 tests cover routing logic, the eval harness, and API endpoints, running on synthetic data so CI needs no real dataset, GPU, or API key.
+- **Observability built in** — per-agent cost/latency tracked and exposed via `/metrics`.
+- **CI-tested** — tests cover routing logic, the eval harness, and API endpoints, running on synthetic data so CI needs no real dataset, GPU, or API key.
 
 ## Tech stack
 
 Python 3.12 · pandas · statsmodels · Prophet · scikit-learn · LangGraph (agent
-orchestration) · Groq (LLM routing & synthesis) · FastAPI · Docker · GitHub Actions CI
+orchestration) · Groq (LLM routing & synthesis) · FastAPI · Docker · GitHub
+Actions CI · MCP (Model Context Protocol)
+
+## Limitations & future work
+
+Honest scope notes — this is a portfolio project, not a production system:
+
+- **Forecasting models** — Holt-Winters + Prophet only; modern alternatives
+  (LightGBM-TS, N-BEATS, NeuralProphet) are not included.
+- **Point forecasts** — returns a point estimate with a confidence flag; adding
+  prediction intervals would better support inventory decisions. *(planned)*
+- **Store metadata** — `store.csv` (store type, competition distance, assortment)
+  is loaded but not yet used as forecast features.
+- **LLM synthesis** — the reporting narrative has no automated answer-quality
+  evaluation yet (routing is evaluated; answer quality is not).
+- **Security** — input validation is limited to unknown-store handling; no
+  prompt-injection defense or access control yet. *(planned)*
+- **Static data** — no automated retraining, drift detection, or A/B pipeline;
+  Rossmann data ends July 2015 (a standard benchmark, but not recent dynamics).
 
 ## Next steps
 
-1. **Wire the reporting agent into the supervisor** — add a "full report" route so the supervisor hands off to composition when the user wants the whole picture.
-2. **Extend evaluation** — add answer-quality cases (LLM-as-judge) and harder/ambiguous routing cases.
-3. **AI Ops** — cost dashboard ($/request per agent), model cascading, semantic caching.
-4. **Security & guardrails** — input validation, prompt-injection defense, access control.
-5. **MCP server** — expose the agents as MCP tools.
+1. **Uncertainty quantification** — expose Prophet's prediction intervals for inventory planning.
+2. **Security & guardrails** — input validation, prompt-injection defense, access control.
+3. **Extend evaluation** — LLM-as-judge for answer quality; harder/ambiguous routing cases.
+4. **Model cascading / caching** — use `/metrics` signals to cache forecasts and route simple tasks to cheaper models.
