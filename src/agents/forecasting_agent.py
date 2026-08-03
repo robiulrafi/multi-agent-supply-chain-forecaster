@@ -86,6 +86,15 @@ class ForecastingAgent:
             },
             "mean_daily_forecast": round(result.mean_forecast),
             "total_forecast": round(result.total_forecast),
+            "prediction_interval": (
+                {
+                    "pct": result.interval_pct,
+                    "lower_daily": round(float(result.lower.mean())),
+                    "upper_daily": round(float(result.upper.mean())),
+                }
+                if result.lower is not None and result.upper is not None
+                else None
+            ),
             "backtest_mape_pct": round(result.mape, 1) if result.mape else None,
             "trust": trust,
             "forecast_start": str((result.train_end).date()),

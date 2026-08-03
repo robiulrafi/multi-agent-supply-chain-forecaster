@@ -21,6 +21,7 @@ from src.agents.supervisor import build_supervisor
 from src.agents.reporting_agent import ReportingAgent
 from src.data.loader import list_stores
 from src.ops.cost_tracker import tracker as cost_tracker
+from src.security.guardrails import validate_query
 
 app = FastAPI(
     title="Multi-Agent Supply Chain Forecaster",
@@ -79,8 +80,12 @@ def stores():
 @app.post("/ask", response_model=AskResponse)
 def ask(req: AskRequest):
     """Route a natural-language query to the right specialist agent."""
+    # security guardrail: validate + sanitize before anything reaches an LLM
+    check = validate_query(req.query)
+    if not check.ok:
+        raise HTTPException(status_code=400, detail=check.reason)
     try:
-        state = {"query": req.query, "horizon_days": req.horizon_days}
+        state = {"query": check.sanitized, "horizon_days": req.horizon_days}
         if req.store_id is not None:
             state["store_id"] = req.store_id
         out = _supervisor.invoke(state)

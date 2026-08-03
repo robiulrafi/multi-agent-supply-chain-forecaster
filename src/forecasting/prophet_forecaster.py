@@ -83,10 +83,10 @@ def forecast_store_sales_prophet(
         )
         future["Promo"] = future["Promo"].fillna((promo_rate > 0.5) * 1)
     fc_df = m.predict(future).tail(horizon_days)
-    fc = pd.Series(
-        fc_df["yhat"].clip(lower=0).values,
-        index=pd.to_datetime(fc_df["ds"].values),
-    )
+    idx = pd.to_datetime(fc_df["ds"].values)
+    fc = pd.Series(fc_df["yhat"].clip(lower=0).values, index=idx)
+    lower = pd.Series(fc_df["yhat_lower"].clip(lower=0).values, index=idx)
+    upper = pd.Series(fc_df["yhat_upper"].clip(lower=0).values, index=idx)
 
     return ForecastResult(
         store_id=store_id,
@@ -96,6 +96,9 @@ def forecast_store_sales_prophet(
         total_forecast=float(fc.sum()),
         train_end=pd.to_datetime(df["ds"].max()),
         mape=mape,
+        lower=lower,
+        upper=upper,
+        interval_pct=80,   # Prophet's default interval_width is 0.80
     )
 
 

@@ -30,6 +30,9 @@ class ForecastResult:
     total_forecast: float        # sum over horizon
     train_end: pd.Timestamp
     mape: float | None = None    # backtest error, if computed
+    lower: pd.Series | None = None   # lower prediction interval (optional)
+    upper: pd.Series | None = None   # upper prediction interval (optional)
+    interval_pct: int | None = None  # e.g. 80 for an 80% interval
 
     def summary(self) -> str:
         lines = [
@@ -38,6 +41,11 @@ class ForecastResult:
             f"  Total predicted sales:       {self.total_forecast:,.0f}",
             f"  Forecast starts after:       {self.train_end.date()}",
         ]
+        if self.lower is not None and self.upper is not None:
+            lines.append(
+                f"  {self.interval_pct or 80}% interval (daily): "
+                f"{self.lower.mean():,.0f} \u2013 {self.upper.mean():,.0f}"
+            )
         if self.mape is not None:
             lines.append(f"  Backtest MAPE:               {self.mape:.1f}%")
         return "\n".join(lines)
