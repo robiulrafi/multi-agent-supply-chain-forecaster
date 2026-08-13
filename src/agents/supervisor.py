@@ -72,7 +72,7 @@ def _llm_route(query: str) -> Optional[str]:
         return None
     try:
         from langchain_groq import ChatGroq
-        llm = ChatGroq(model="llama-3.1-8b-instant", temperature=0)
+        llm = ChatGroq(model="openai/gpt-oss-20b", temperature=0)
         prompt = (
             "You route supply-chain questions to one of three tools.\n"
             "Reply with EXACTLY one word: 'forecasting', 'anomaly', or 'report'.\n"

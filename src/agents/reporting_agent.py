@@ -70,7 +70,7 @@ class ReportingAgent:
             return template
         try:
             from langchain_groq import ChatGroq
-            llm = ChatGroq(model="llama-3.1-8b-instant", temperature=0.2)
+            llm = ChatGroq(model="openai/gpt-oss-20b", temperature=0.2)
             prompt = (
                 "Write a concise 3-4 sentence supply-chain briefing for a store "
                 "manager, using ONLY the facts below. Be specific and practical.\n\n"

@@ -21,8 +21,8 @@ import functools
 
 # Rough Groq pricing for llama-3.1-8b-instant (USD per 1M tokens).
 # Adjust to your model; the point is per-agent $ visibility, not exact billing.
-_PRICE_PER_1M_INPUT = 0.05
-_PRICE_PER_1M_OUTPUT = 0.08
+_PRICE_PER_1M_INPUT = 0.075
+_PRICE_PER_1M_OUTPUT = 0.30
 
 
 @dataclass
